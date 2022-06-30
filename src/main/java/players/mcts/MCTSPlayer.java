@@ -66,13 +66,56 @@ public class MCTSPlayer extends AbstractPlayer {
         MASTStats = null;
     }
 
+    // SECTOR DE TRABAJO
     @Override
     public AbstractAction getAction(AbstractGameState gameState, List<AbstractAction> actions) {
         // Search for best action from the root
         if (params.opponentTreePolicy == MultiTree || params.opponentTreePolicy == MultiTreeParanoid)
-            root = new MultiTreeNode(this, gameState, rnd);
-        else
+             root = new MultiTreeNode(this, gameState, rnd);
+        else root = SingleTreeNode.createRootNode(this, gameState, rnd);
+
+        if (MASTStats != null)
+            root.MASTStatistics = MASTStats.stream()
+                    .map(m -> Utils.decay(m, params.MASTGamma))
+                    .collect(Collectors.toList());
+
+        if (rolloutStrategy instanceof MASTPlayer) {
+            ((MASTPlayer) rolloutStrategy).setRoot(root);
+            ((MASTPlayer) rolloutStrategy).temperature = params.MASTBoltzmann;
+        }
+
+        root.mctsSearch(getStatsLogger());
+        if (params.gatherExpertIterationData) {
+            ExpertIterationDataGatherer eidg = new ExpertIterationDataGatherer(params.expertIterationFileStem, Arrays.asList(DiceMonasteryStateAttributes.values()));
+            eidg.recordData(root, getForwardModel());
+            eidg.close();
+        }
+
+        if (heuristic instanceof ITreeProcessor)         ((ITreeProcessor) heuristic).process(root);
+        if (rolloutStrategy instanceof ITreeProcessor)   ((ITreeProcessor) rolloutStrategy).process(root);
+        if (advantageFunction instanceof ITreeProcessor) ((ITreeProcessor) advantageFunction).process(root);
+        if (opponentModel instanceof ITreeProcessor)     ((ITreeProcessor) opponentModel).process(root);
+
+        if (debug) System.out.println(root.toString());
+
+        MASTStats = root.MASTStatistics;
+        // Return best action
+        if (root.children.size() > 2 * actions.size())
+            throw new AssertionError(String.format("Unexpectedly large number of children: %d with action size of %d", root.children.size(), actions.size()) );
+        return root.bestAction();
+    }
+
+    /*
+    @Override
+    public AbstractAction getAction(AbstractGameState gameState, List<AbstractAction> actions) {
+        // Search for best action from the root
+        if (params.opponentTreePolicy == MultiTree || params.opponentTreePolicy == MultiTreeParanoid)
+            //root = new MultiTreeNode(this, gameState, rnd);
             root = SingleTreeNode.createRootNode(this, gameState, rnd);
+
+        else
+            root = new MultiTreeNode(this, gameState, rnd);
+        //root = SingleTreeNode.createRootNode(this, gameState, rnd);
 
         if (MASTStats != null)
             root.MASTStatistics = MASTStats.stream()
@@ -106,8 +149,7 @@ public class MCTSPlayer extends AbstractPlayer {
         if (root.children.size() > 2 * actions.size())
             throw new AssertionError(String.format("Unexpectedly large number of children: %d with action size of %d", root.children.size(), actions.size()) );
         return root.bestAction();
-    }
-
+    }*/
 
     public AbstractPlayer getOpponentModel(int playerID) {
         return opponentModel;
